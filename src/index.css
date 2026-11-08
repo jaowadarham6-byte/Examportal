@@ -31,3 +31,5 @@ label { font-weight:500; font-size:15px; }
 .err { color:var(--bad); }
 table { width:100%; border-collapse:collapse; }
 th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+a { color: var(--brand); }
+details summary { cursor: pointer; font-weight: 500; }

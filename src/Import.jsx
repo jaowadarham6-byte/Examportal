@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { sb } from './supabase'
 import { parseQuestions, check } from './parser'
 
@@ -20,6 +20,17 @@ export default function Import() {
   const [items, setItems] = useState(null)
   const [marks, setMarks] = useState(1)
   const [msg, setMsg] = useState('')
+  const [classes, setClasses] = useState([])
+  const [sets, setSets] = useState([])
+  const [setId, setSetId] = useState('') // '' = create a new set
+  const [name, setName] = useState('')
+  const [classId, setClassId] = useState('')
+
+  const loadSets = async () => {
+    setClasses((await sb.from('classes').select('*').order('name')).data || [])
+    setSets((await sb.from('question_sets').select('*, classes(name)').order('id', { ascending: false })).data || [])
+  }
+  useEffect(() => { loadSets() }, [])
 
   const read = () => { setMsg(''); setItems(parseQuestions(text)) }
   const upd = (i, patch) => setItems(items.map((x, k) => (k === i ? { ...x, ...patch } : x)))
@@ -28,19 +39,49 @@ export default function Import() {
   const save = async () => {
     const ok = items.filter((x) => check(x).length === 0)
     if (!ok.length) return setMsg('Nothing is ready to save. Fix the items marked in red first.')
+    let sid = setId
+    if (!sid) {
+      if (!name.trim() || !classId) return setMsg('Choose a class and type a name for the new set (top of this page).')
+      const { data, error } = await sb.from('question_sets').insert({ name: name.trim(), class_id: +classId }).select().single()
+      if (error) return setMsg(error.message)
+      sid = String(data.id)
+    }
     const { error } = await sb.from('questions').insert(
-      ok.map((x) => ({ body: x.body, options: x.options, correct: x.correct, explanation: x.explanation, marks: +marks }))
+      ok.map((x) => ({ set_id: +sid, body: x.body, options: x.options, correct: x.correct, explanation: x.explanation, marks: +marks }))
     )
     if (error) return setMsg(error.message)
     const left = items.filter((x) => check(x).length > 0)
     setItems(left.length ? left : null)
     if (!left.length) setText('')
-    setMsg(`${ok.length} questions saved.${left.length ? ` ${left.length} still need fixing below.` : ' Now create an exam from the Exams tab.'}`)
+    setSetId(sid)
+    await loadSets()
+    setMsg(`${ok.length} questions saved to the set.${left.length ? ` ${left.length} still need fixing below.` : ' Now create an exam from the Exams tab.'}`)
   }
 
   const ready = items ? items.filter((x) => check(x).length === 0).length : 0
   return (
     <div>
+      <div className="card">
+        <label>Save these questions into</label>
+        <select value={setId} onChange={(e) => setSetId(e.target.value)}>
+          <option value="">+ Create a new set</option>
+          {sets.map((s) => (
+            <option key={s.id} value={s.id}>{s.name} ({s.classes?.name || 'no class'})</option>
+          ))}
+        </select>
+        {!setId && (
+          <>
+            <label>New set name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Chapter 3 Set A" />
+            <label>Class</label>
+            <select value={classId} onChange={(e) => setClassId(e.target.value)}>
+              <option value="">Choose class</option>
+              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </>
+        )}
+      </div>
+
       <div className="card">
         <label>Paste questions with answers (Bengali or English)</label>
         <textarea style={{ minHeight: 220 }} value={text} onChange={(e) => setText(e.target.value)} placeholder={SAMPLE} />

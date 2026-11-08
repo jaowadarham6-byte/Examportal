@@ -85,12 +85,14 @@ export default function Student() {
   const [exams, setExams] = useState([])
   const [attempts, setAttempts] = useState([])
   const [view, setView] = useState(null)
+  const [res, setRes] = useState([])
 
   useEffect(() => {
     if (view) return
     ;(async () => {
       setExams((await sb.from('exams').select('*').order('id', { ascending: false })).data || [])
       setAttempts((await sb.from('attempts').select('*, exams(title)').order('id')).data || [])
+      setRes((await sb.from('resources').select('*').order('id', { ascending: false })).data || [])
     })()
   }, [view])
 
@@ -102,7 +104,7 @@ export default function Student() {
   return (
     <div>
       <nav>
-        {['exams', 'progress'].map((t) => (
+        {['exams', 'resources', 'progress'].map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>
         ))}
       </nav>
@@ -120,6 +122,12 @@ export default function Student() {
           ) : (
             <button onClick={() => window.confirm('Start now? The timer begins immediately and you get one attempt.') && setView({ type: 'take', exam: e })}>Start</button>
           )}
+        </div>
+      )))}
+      {tab === 'resources' && (res.length === 0 ? <p className="card">No links have been shared yet.</p> : res.map((r) => (
+        <div className="card" key={r.id}>
+          <a href={r.url} target="_blank" rel="noopener noreferrer"><b>{r.title}</b></a>
+          {r.note && <p style={{ whiteSpace: 'pre-wrap', margin: '4px 0 0' }}>{r.note}</p>}
         </div>
       )))}
       {tab === 'progress' && (finished.length === 0 ? <p className="card">Your results will appear here after your first exam.</p> : finished.map((a) => {
