@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { sb } from './supabase'
+import Rich from './Rich'
 
 const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
@@ -8,15 +9,29 @@ function Take({ exam, done, back }) {
   const [ans, setAns] = useState({})
   const [left, setLeft] = useState(0)
   const [err, setErr] = useState('')
+  const [saved, setSaved] = useState('')
   const sent = useRef(false)
+  const dirty = useRef(false)
 
   useEffect(() => {
     sb.rpc('start_exam', { p_exam_id: exam.id }).then(({ data, error }) => {
       if (error) return setErr(error.message)
-      setD(data)
-      setLeft(data.remaining)
+      setD(data); setLeft(data.remaining); setAns(data.answers || {})
     })
   }, [])
+
+  // autosave 1.5 seconds after the last change
+  useEffect(() => {
+    if (!d || !dirty.current) return
+    const t = setTimeout(async () => {
+      const { error } = await sb.rpc('save_answers', { p_attempt_id: d.attempt_id, p_answers: ans })
+      if (error) setSaved('Not saved yet. Check your internet.')
+      else { dirty.current = false; setSaved('Answers saved') }
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [ans, d])
+
+  const pick = (qid, j) => { dirty.current = true; setAns({ ...ans, [qid]: j }) }
 
   const submit = async () => {
     if (sent.current) return
@@ -35,22 +50,29 @@ function Take({ exam, done, back }) {
 
   if (err) return <div><p className="err">{err}</p><button onClick={back}>Back</button></div>
   if (!d) return <p className="c">Loading exam...</p>
+  const answered = d.questions.filter((q) => ans[q.id] !== undefined).length
+  const confirmSubmit = () => {
+    const rest = d.questions.length - answered
+    const m = rest > 0 ? `You have ${rest} unanswered question(s). Submit anyway? You cannot retake it.` : 'Submit your exam now? You cannot retake it.'
+    if (window.confirm(m)) submit()
+  }
   return (
     <div>
-      <div className="timer">Time left: {mmss(left)}</div>
+      <div className="timer">Answered {answered}/{d.questions.length} &nbsp;|&nbsp; Time left: {mmss(left)} {saved && <small>&nbsp;({saved})</small>}</div>
       <h2>{exam.title}</h2>
       {d.questions.map((q, i) => (
         <div className="card" key={q.id}>
-          <p style={{ whiteSpace: 'pre-wrap' }}><b>{i + 1}.</b> {q.body} <small>({q.marks} mark)</small></p>
+          <p><b>{i + 1}.</b> <Rich text={q.body} /> <small>({q.marks} mark)</small></p>
+          {q.image_url && <img src={q.image_url} alt="Question figure" style={{ maxWidth: '100%', borderRadius: 6 }} />}
           {q.options.map((o, j) => (
             <label className="opt" key={j}>
-              <input type="radio" name={'q' + q.id} checked={ans[q.id] === j} onChange={() => setAns({ ...ans, [q.id]: j })} />
-              <span>{o}</span>
+              <input type="radio" name={'q' + q.id} checked={ans[q.id] === j} onChange={() => pick(q.id, j)} />
+              <span><Rich text={o} /></span>
             </label>
           ))}
         </div>
       ))}
-      <button onClick={() => window.confirm('Submit your exam now? You cannot retake it.') && submit()}>Submit exam</button>
+      <button onClick={confirmSubmit}>Submit exam</button>
     </div>
   )
 }
@@ -66,14 +88,15 @@ function Result({ id, back }) {
       <h3>Score: {r.score} / {r.total}</h3>
       {(r.items || []).map((q, i) => (
         <div className="card" key={q.id}>
-          <p style={{ whiteSpace: 'pre-wrap' }}><b>{i + 1}.</b> {q.body}</p>
+          <p><b>{i + 1}.</b> <Rich text={q.body} /></p>
+          {q.image_url && <img src={q.image_url} alt="Question figure" style={{ maxWidth: '100%', borderRadius: 6 }} />}
           {q.options.map((o, j) => (
             <div key={j} className={j === q.correct ? 'ok' : j === q.chosen ? 'bad' : 'plain'}>
-              {o}{j === q.chosen ? ' (your answer)' : ''}{j === q.correct ? ' (correct)' : ''}
+              <Rich text={o} />{j === q.chosen ? ' (your answer)' : ''}{j === q.correct ? ' (correct)' : ''}
             </div>
           ))}
           {q.chosen === null && <p className="err">Not answered</p>}
-          {q.explanation && <div className="ex" style={{ whiteSpace: 'pre-wrap' }}>{q.explanation}</div>}
+          {q.explanation && <div className="ex"><Rich text={q.explanation} /></div>}
         </div>
       ))}
     </div>

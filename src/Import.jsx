@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { sb } from './supabase'
+import Rich from './Rich'
 import { parseQuestions, check } from './parser'
 
 const SAMPLE = `1. Which gas is released when Zn reacts with dilute HCl?
@@ -114,9 +115,9 @@ export default function Import() {
                   <b>Question {it.num}</b>
                   <button className="danger" onClick={() => drop(i)}>Remove</button>
                 </div>
-                <p style={{ whiteSpace: 'pre-wrap' }}>{it.body}</p>
+                <p><Rich text={it.body} /></p>
                 {it.options.map((o, j) => (
-                  <div key={j} className={j === it.correct ? 'ok' : 'plain'}>{'ABCDE'[j]}. {o}</div>
+                  <div key={j} className={j === it.correct ? 'ok' : 'plain'}>{'ABCDE'[j]}. <Rich text={o} /></div>
                 ))}
                 {w.map((x) => <p className="err" key={x}>{x}</p>)}
                 <label>Correct option</label>
