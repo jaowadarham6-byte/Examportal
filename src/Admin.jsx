@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { sb } from './supabase'
 import Import from './Import'
+import Rich from './Rich'
 
 function Students() {
   const [rows, setRows] = useState([])
@@ -121,6 +122,32 @@ function QForm({ init, onSave, onCancel, resetOnSave }) {
   )
 }
 
+function StimForm({ init, onSave, onCancel, onDelete }) {
+  const [body, setBody] = useState(init.body)
+  const [img, setImg] = useState(init.image_url || '')
+  const [busy, setBusy] = useState(false)
+  const pickImg = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setBusy(true)
+    try { setImg(await uploadImage(file)) } catch (er) { alert(er.message) }
+    setBusy(false)
+  }
+  return (
+    <div>
+      <label>Stimulus text</label>
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} />
+      <label>Picture (optional)</label>
+      <input type="file" accept="image/*" onChange={pickImg} />
+      {img && <div><img src={img} alt="" style={{ maxWidth: 220, borderRadius: 6 }} />{' '}<button type="button" className="ghost" onClick={() => setImg('')}>Remove picture</button></div>}
+      <br />
+      <button disabled={busy || !body.trim()} onClick={() => onSave({ body: body.trim(), image_url: img || null })}>Save stimulus</button>{' '}
+      <button className="ghost" onClick={onCancel}>Cancel</button>{' '}
+      <button className="danger" onClick={onDelete}>Remove stimulus</button>
+    </div>
+  )
+}
+
 function SetEdit({ s, cls, reload }) {
   const [name, setName] = useState(s.name)
   const [cid, setCid] = useState(s.class_id ?? '')
@@ -154,9 +181,12 @@ function Questions() {
   const [setId, setSetId] = useState('')
   const [ns, setNs] = useState({ name: '', class_id: '' })
   const [editing, setEditing] = useState(null)
+  const [stims, setStims] = useState([])
+  const [editingStim, setEditingStim] = useState(null)
   const load = async () => {
     setSets((await sb.from('question_sets').select('*, classes(name)').order('id', { ascending: false })).data || [])
-    setQs((await sb.from('questions').select('id, body, set_id').order('id')).data || [])
+    setQs((await sb.from('questions').select('id, body, set_id, stimulus_id').order('id')).data || [])
+    setStims((await sb.from('stimuli').select('*').order('id')).data || [])
     setCls((await sb.from('classes').select('*').order('name')).data || [])
   }
   useEffect(() => { load() }, [])
@@ -207,6 +237,41 @@ function Questions() {
         </span>
       </div>
     )
+  const updStim = async (data) => {
+    const { error } = await sb.from('stimuli').update(data).eq('id', editingStim.id)
+    if (error) return alert(error.message)
+    setEditingStim(null); load()
+  }
+  const delStim = async () => {
+    if (!window.confirm('Remove this stimulus? The questions stay but lose the stimulus.')) return
+    const { error } = await sb.from('stimuli').delete().eq('id', editingStim.id)
+    if (error) return alert(error.message)
+    setEditingStim(null); load()
+  }
+  const renderStim = (st) =>
+    editingStim?.id === st.id ? (
+      <div key={'s' + st.id} className="stim" style={{ padding: 10, margin: '6px 0', borderRadius: 6 }}>
+        <StimForm init={st} onSave={updStim} onCancel={() => setEditingStim(null)} onDelete={delStim} />
+      </div>
+    ) : (
+      <div key={'s' + st.id} className="stim row" style={{ padding: 10, margin: '6px 0', borderRadius: 6 }}>
+        <span style={{ flex: 1 }}><small>Stimulus</small><br /><Rich text={st.body} />{st.image_url && <small> (with picture)</small>}</span>
+        <button className="ghost" onClick={() => setEditingStim(st)}>Edit</button>
+      </div>
+    )
+  const withStims = (list) => {
+    const out = []
+    const seen = new Set()
+    for (const q of list) {
+      if (q.stimulus_id && !seen.has(q.stimulus_id)) {
+        seen.add(q.stimulus_id)
+        const st = stims.find((x) => x.id === q.stimulus_id)
+        if (st) out.push(renderStim(st))
+      }
+      out.push(<div key={'q' + q.id} style={{ marginLeft: q.stimulus_id ? 12 : 0 }}>{renderQ(q)}</div>)
+    }
+    return out
+  }
   const loose = qs.filter((q) => !q.set_id)
   return (
     <div>
@@ -238,7 +303,7 @@ function Questions() {
           <details className="card" key={s.id}>
             <summary>{s.name} <small>({s.classes?.name || 'no class'}, {mine.length} questions)</small></summary>
             <SetEdit s={s} cls={cls} reload={load} />
-            {mine.map(renderQ)}
+            {withStims(mine)}
             <br /><button className="danger" onClick={() => delSet(s)}>Delete whole set</button>
           </details>
         )
@@ -303,7 +368,7 @@ function Exams() {
     e.preventDefault()
     if (!pick.length) return alert('Select at least one set.')
     if (f.opens && f.closes && new Date(f.closes) <= new Date(f.opens)) return alert('Closing time must be after opening time.')
-    const { data: rows, error: e0 } = await sb.from('questions').select('id').in('set_id', pick)
+    const { data: rows, error: e0 } = await sb.from('questions').select('id, set_id').in('set_id', pick).order('set_id').order('id')
     if (e0) return alert(e0.message)
     if (!rows.length) return alert('The selected sets have no questions.')
     const { data, error } = await sb.from('exams').insert({
@@ -312,7 +377,7 @@ function Exams() {
       opens_at: fromLocalInput(f.opens), closes_at: fromLocalInput(f.closes), practice: f.practice,
     }).select().single()
     if (error) return alert(error.message)
-    const { error: e2 } = await sb.from('exam_questions').insert(rows.map((r) => ({ exam_id: data.id, question_id: r.id })))
+    const { error: e2 } = await sb.from('exam_questions').insert(rows.map((r, i) => ({ exam_id: data.id, question_id: r.id, position: i + 1 })))
     if (e2) return alert(e2.message)
     setPick([]); setF(blank); load()
   }

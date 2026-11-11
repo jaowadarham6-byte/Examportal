@@ -10,6 +10,11 @@ const OPT_SPLIT = new RegExp(`\\s+(?=[\\(\\[]?[${L}][\\)\\]\\.]\\s)`)
 const MARKED = /\s*(?:✓|✔|\*|\(correct\))\s*$/i
 const ANS_LINE = new RegExp(`^(?:সঠিক\\s*)?(?:ans(?:wer)?|উত্তর|correct(?:\\s*answer)?)\\s*[:\\-\\.]?\\s*[\\(\\[]?([${L}1-5])${NOT_LETTER}`, 'i')
 const EXPL = /^(?:explanation|exp|solution|ব্যাখ্যা|সমাধান)\s*[:\-]\s*(.*)$/i
+const KEYS = '(?:উদ্দীপক|stimulus|passage)'
+const NOTLET = '(?![\\u0980-\\u09FFA-Za-z])'
+const STIM_BRACKET = new RegExp(`^[\\[\\(]\\s*${KEYS}${NOTLET}[^\\]\\)]*[\\]\\)]\\s*(.*)$`, 'i')   // [ উদ্দীপক ৫ ] text
+const STIM_ALONE = new RegExp(`^${KEYS}${NOTLET}\\s*\\d*\\s*()$`, 'i')                              // উদ্দীপক ৫
+const STIM_COLON = new RegExp(`^${KEYS}${NOTLET}\\s*\\d*\\s*[:\\-–]\\s*(.*)$`, 'i')                 // উদ্দীপক: text
 const KEY_HEAD = /^(?:answers|answer\s*key|key|উত্তরমালা|উত্তরপত্র)\s*[:\-]?\s*$/i
 const KEY_PREFIX = /^(?:answers?|answer\s*key|key|উত্তরমালা|উত্তরপত্র)\s*[:\-]\s*(?=\d)/i
 const KEY_LINE = new RegExp(`^(?:\\s*\\d{1,3}\\s*[\\-\\.\\):]?\\s*[\\(\\[]?[${L}][\\)\\]]?${NOT_LETTER}[\\s,;|]*)+$`)
@@ -23,10 +28,11 @@ export function check(it) {
   return w
 }
 
-function run(text) {
+function run(text, perStim) {
+  const stimuli = []
   const items = []
   const key = {}
-  let cur = null, state = 'body', inKey = false, last = 0
+  let cur = null, state = 'body', inKey = false, last = 0, curStim = null, remaining = 0
   const addPairs = (s) => { for (const m of s.matchAll(PAIR)) key[+m[1]] = LET[m[2]] }
 
   for (const raw of text.replace(/\r/g, '').split('\n')) {
@@ -39,12 +45,25 @@ function run(text) {
     const nk = n.replace(KEY_PREFIX, '')
     if (KEY_LINE.test(nk)) { addPairs(nk); continue }
 
+    const sm = n.match(STIM_BRACKET) || n.match(STIM_ALONE) || n.match(STIM_COLON)
+    if (sm) {
+      const rest = sm[1] ? line.slice(line.length - sm[1].length) : ''
+      curStim = { body: rest }
+      stimuli.push(curStim)
+      remaining = perStim > 0 ? perStim : Infinity
+      cur = null; state = 'stim'
+      continue
+    }
+
     const q = n.match(Q_START)
     if (q && (state !== 'expl' || +q[1] === last + 1)) {
-      cur = { num: +q[1], body: line.slice(line.length - q[2].length), options: [], correct: null, explanation: '' }
+      const useStim = curStim && remaining > 0
+      if (useStim) remaining--
+      cur = { num: +q[1], body: line.slice(line.length - q[2].length), options: [], correct: null, explanation: '', stimIdx: useStim ? stimuli.indexOf(curStim) : null }
       items.push(cur); state = 'body'; last = cur.num
       continue
     }
+    if (state === 'stim') { curStim.body += (curStim.body ? '\n' : '') + line; continue }
     if (!cur) continue
 
     const a = n.match(ANS_LINE)
@@ -68,12 +87,13 @@ function run(text) {
     else cur.explanation += (cur.explanation ? '\n' : '') + line
   }
   for (const it of items) if (it.correct === null && key[it.num] !== undefined) it.correct = key[it.num]
-  return items
+  for (const st of stimuli) st.body = st.body.trim()
+  return { items, stimuli }
 }
 
-export function parseQuestions(text) {
-  let items = run(text)
+export function parseQuestions(text, perStim = 2) {
+  let r = run(text, perStim)
   // fallback: questions without numbers, separated by blank lines
-  if (!items.length) items = run(text.split(/\n\s*\n/).map((c, i) => `${i + 1}. ${c}`).join('\n'))
-  return items
+  if (!r.items.length) r = run(text.split(/\n\s*\n/).map((c, i) => `${i + 1}. ${c}`).join('\n'), perStim)
+  return r
 }

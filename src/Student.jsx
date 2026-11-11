@@ -97,6 +97,13 @@ function Take({ exam, done, back }) {
         <small>Filled = answered. Orange = marked for review. White = not answered yet.</small>
       </details>
 
+      {q.stimulus && (
+        <div className="card stim">
+          <small>Stimulus</small>
+          <p style={{ margin: '4px 0' }}><Rich text={q.stimulus} /></p>
+          {q.stimulus_image && <img src={q.stimulus_image} alt="Stimulus figure" style={{ maxWidth: '100%', borderRadius: 6 }} />}
+        </div>
+      )}
       <div className="card">
         <p><b>{idx + 1} / {qs.length}.</b> <Rich text={q.body} /> <small>({q.marks} mark)</small></p>
         {q.image_url && <img src={q.image_url} alt="Question figure" style={{ maxWidth: '100%', borderRadius: 6 }} />}
@@ -133,8 +140,15 @@ function Result({ id, back }) {
       <button className="ghost" onClick={back}>Back</button>
       <h2>{r.title}</h2>
       <h3>Score: {r.score} / {r.total}</h3>
-      {(r.items || []).map((q, i) => (
+      {(r.items || []).map((q, i, arr) => (
         <div className="card" key={q.id}>
+          {q.stimulus && (i === 0 || arr[i - 1].stimulus !== q.stimulus) && (
+            <div className="card stim">
+              <small>Stimulus</small>
+              <p style={{ margin: '4px 0' }}><Rich text={q.stimulus} /></p>
+              {q.stimulus_image && <img src={q.stimulus_image} alt="Stimulus figure" style={{ maxWidth: '100%', borderRadius: 6 }} />}
+            </div>
+          )}
           <p><b>{i + 1}.</b> <Rich text={q.body} /></p>
           {q.image_url && <img src={q.image_url} alt="Question figure" style={{ maxWidth: '100%', borderRadius: 6 }} />}
           {q.options.map((o, j) => (

@@ -41,3 +41,4 @@ button:disabled { opacity: .45; cursor: default; }
 .qb.done { background: var(--brand); color: #fff; border-color: var(--brand); }
 .qb.flag { background: #f0a030; color: #14212b; border-color: #c97d10; }
 .qb.cur { outline: 3px solid var(--ink); outline-offset: 1px; }
+.stim { background: #eef6f4; border-left: 4px solid var(--brand); }
