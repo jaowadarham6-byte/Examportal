@@ -253,12 +253,41 @@ function Questions() {
   )
 }
 
+const pad2 = (n) => String(n).padStart(2, '0')
+const toLocalInput = (iso) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+const fromLocalInput = (v) => (v ? new Date(v).toISOString() : null)
+const fmt = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+
+function ExamTimes({ x, reload }) {
+  const [o, setO] = useState(toLocalInput(x.opens_at))
+  const [c, setC] = useState(toLocalInput(x.closes_at))
+  const save = async () => {
+    if (o && c && new Date(c) <= new Date(o)) return alert('Closing time must be after opening time.')
+    const { error } = await sb.from('exams').update({ opens_at: fromLocalInput(o), closes_at: fromLocalInput(c) }).eq('id', x.id)
+    if (error) alert(error.message)
+    reload()
+  }
+  return (
+    <div style={{ marginTop: 8 }}>
+      <label>Students can start from (empty = no limit)</label>
+      <input type="datetime-local" value={o} onChange={(e) => setO(e.target.value)} />
+      <label>Students can start until (empty = no limit)</label>
+      <input type="datetime-local" value={c} onChange={(e) => setC(e.target.value)} />
+      <button onClick={save}>Save times</button>
+    </div>
+  )
+}
+
 function Exams() {
   const [sets, setSets] = useState([])
   const [qs, setQs] = useState([])
   const [cls, setCls] = useState([])
   const [exams, setExams] = useState([])
-  const blank = { title: '', class_id: '', duration_min: 30, negative_mark: 0 }
+  const blank = { title: '', class_id: '', duration_min: 30, negative_mark: 0, opens: '', closes: '', practice: false }
   const [f, setF] = useState(blank)
   const [pick, setPick] = useState([])
   const load = async () => {
@@ -273,12 +302,14 @@ function Exams() {
   const create = async (e) => {
     e.preventDefault()
     if (!pick.length) return alert('Select at least one set.')
+    if (f.opens && f.closes && new Date(f.closes) <= new Date(f.opens)) return alert('Closing time must be after opening time.')
     const { data: rows, error: e0 } = await sb.from('questions').select('id').in('set_id', pick)
     if (e0) return alert(e0.message)
     if (!rows.length) return alert('The selected sets have no questions.')
     const { data, error } = await sb.from('exams').insert({
       title: f.title, class_id: f.class_id === 'all' ? null : +f.class_id,
       duration_min: +f.duration_min, negative_mark: +f.negative_mark,
+      opens_at: fromLocalInput(f.opens), closes_at: fromLocalInput(f.closes), practice: f.practice,
     }).select().single()
     if (error) return alert(error.message)
     const { error: e2 } = await sb.from('exam_questions').insert(rows.map((r) => ({ exam_id: data.id, question_id: r.id })))
@@ -302,6 +333,14 @@ function Exams() {
         <input type="number" min="1" value={f.duration_min} onChange={(e) => setF({ ...f, duration_min: e.target.value })} />
         <label>Negative mark per wrong answer (0 for none)</label>
         <input type="number" step="0.25" min="0" value={f.negative_mark} onChange={(e) => setF({ ...f, negative_mark: e.target.value })} />
+        <label>Students can start from (optional)</label>
+        <input type="datetime-local" value={f.opens} onChange={(e) => setF({ ...f, opens: e.target.value })} />
+        <label>Students can start until (optional)</label>
+        <input type="datetime-local" value={f.closes} onChange={(e) => setF({ ...f, closes: e.target.value })} />
+        <label className="opt">
+          <input type="checkbox" checked={f.practice} onChange={(e) => setF({ ...f, practice: e.target.checked })} />
+          <span>Practice mode: unlimited tries, not counted in results</span>
+        </label>
         <label>Select sets ({pick.length} chosen)</label>
         <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 6, padding: 6 }}>
           {!f.class_id && <small>Choose a class first.</small>}
@@ -316,12 +355,24 @@ function Exams() {
         <br /><button>Create exam</button>
       </form>
       {exams.map((x) => (
-        <div className="card row" key={x.id}>
-          <span><b>{x.title}</b> <small>{x.classes?.name || 'All classes'}, {x.exam_questions?.[0]?.count ?? 0} questions, {x.duration_min} min, {x.published ? 'published' : 'draft'}</small></span>
-          <span>
-            <button className="ghost" onClick={() => toggle(x)}>{x.published ? 'Unpublish' : 'Publish'}</button>{' '}
-            <button className="danger" onClick={() => del(x.id)}>Delete</button>
-          </span>
+        <div className="card" key={x.id}>
+          <div className="row">
+            <span>
+              <b>{x.title}</b>{' '}
+              <small>
+                {x.classes?.name || 'All classes'}, {x.exam_questions?.[0]?.count ?? 0} questions, {x.duration_min} min, {x.practice ? 'practice, ' : ''}{x.published ? 'published' : 'draft'}
+                {x.opens_at ? `, opens ${fmt(x.opens_at)}` : ''}{x.closes_at ? `, start before ${fmt(x.closes_at)}` : ''}
+              </small>
+            </span>
+            <span>
+              <button className="ghost" onClick={() => toggle(x)}>{x.published ? 'Unpublish' : 'Publish'}</button>{' '}
+              <button className="danger" onClick={() => del(x.id)}>Delete</button>
+            </span>
+          </div>
+          <details>
+            <summary>Open and close times</summary>
+            <ExamTimes x={x} reload={load} />
+          </details>
         </div>
       ))}
     </div>
@@ -378,7 +429,7 @@ function Resources() {
 function Results() {
   const [rows, setRows] = useState([])
   const load = () =>
-    sb.from('attempts').select('*, exams(title), profiles(full_name, classes(name))').order('id', { ascending: false }).then(({ data }) => setRows(data || []))
+    sb.from('attempts').select('*, exams(title), profiles(full_name, classes(name))').eq('practice', false).order('id', { ascending: false }).then(({ data }) => setRows(data || []))
   useEffect(() => { load() }, [])
   const reset = async (r) => {
     if (!window.confirm(`Reset ${r.profiles?.full_name}'s attempt for "${r.exams?.title}"? Their answers and score are deleted and they can take the exam again.`)) return

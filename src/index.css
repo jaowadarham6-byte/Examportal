@@ -33,3 +33,11 @@ table { width:100%; border-collapse:collapse; }
 th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
 a { color: var(--brand); }
 details summary { cursor: pointer; font-weight: 500; }
+button:disabled { opacity: .45; cursor: default; }
+.timer.low { background: var(--bad); }
+.warn { border-color: var(--bad); background: #fbe7e5; }
+.qgrid { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.qb { min-width: 44px; background: #fff; color: var(--ink); border: 1px solid var(--line); padding: 8px 0; }
+.qb.done { background: var(--brand); color: #fff; border-color: var(--brand); }
+.qb.flag { background: #f0a030; color: #14212b; border-color: #c97d10; }
+.qb.cur { outline: 3px solid var(--ink); outline-offset: 1px; }
